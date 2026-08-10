@@ -6,7 +6,7 @@
     "disabled": false,
     "end_user_data_statement": "This cog does not persistently store data or metadata about users.",
     "hidden": false,
-    "install_msg": "感謝安裝 EmoteCutter！請使用指令 `[p]cutemotes` 開始切割 9 宮格圖片。",
+    "install_msg": "感謝安裝 EmoteCutter！使用 `[p]cutemotes` 可保留背景切割，使用 `[p]cutemotesbg` 可自動去背切割。",
     "max_bot_version": "0.0.0",
     "min_bot_version": "3.5.0",
     "min_python_version": [
@@ -20,14 +20,16 @@
     ],
     "required_cogs": {},
     "requirements": [
-        "pillow"
+        "pillow",
+        "rembg"
     ],
     "short": "自動切割 9 宮格表情包",
     "tags": [
         "emote",
         "image",
         "utility",
-        "twitch"
+        "twitch",
+        "remove-background"
     ],
     "type": "COG"
 }
