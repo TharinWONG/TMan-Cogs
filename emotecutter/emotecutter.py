@@ -15,7 +15,7 @@ class EmoteCutter(commands.Cog):
         """
         用法：
         .cutemotes 1 [圖片/連結] - 普通精準切割（預設）
-        .cutemotes 2 [圖片/連結] - 無縫去分界線與 [] 標題（文字完整版）
+        .cutemotes 2 [圖片/連結] - 完美去灰線與 [] 標題（文字完整版）
         """
         target_mode = "1"
         if mode in ["1", "2"]:
@@ -40,7 +40,7 @@ class EmoteCutter(commands.Cog):
                 return
 
         if not target_image_bytes:
-            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片 (1050x1024)！格式：`.cutemotes 1` 或 `.cutemotes 2`")
+            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！(1050x1024) 格式：`.cutemotes 1` 或 `.cutemotes 2`")
             return
 
         try:
@@ -66,25 +66,23 @@ class EmoteCutter(commands.Cog):
                         crop_top = top + 15 if row > 0 else top
                         cell_img = img.crop((left, crop_top, right, bottom))
 
-                    # ----------------- 模式 2：完美去灰線與標題（保護文字） -----------------
+                    # ----------------- 模式 2：完美去灰線與標題 -----------------
                     elif target_mode == "2":
-                        # 精準像素偏移：微調避開內部網格灰線，外圍不內縮
-                        offset_left = 3 if col > 0 else 0
-                        offset_top = 3 if row > 0 else 0
-                        offset_right = -3 if col < 2 else 0
-                        offset_bottom = -3 if row < 2 else 0
+                        # 1. 四邊統一向內裁切 8 像素，徹底移除灰黑色邊框線
+                        margin_x = 8
+                        margin_y = 6
 
-                        left = round(col * cell_width) + offset_left
-                        top = round(row * cell_height) + offset_top
-                        right = round((col + 1) * cell_width) + offset_right
-                        bottom = round((row + 1) * cell_height) + offset_bottom
+                        left = round(col * cell_width) + margin_x
+                        top = round(row * cell_height) + margin_y
+                        right = round((col + 1) * cell_width) - margin_x
+                        bottom = round((row + 1) * cell_height) - margin_y
 
                         cell_img = img.crop((left, top, right, bottom))
                         cw, ch = cell_img.size
 
-                        # 精準塗白：高度降至 11%，確保只蓋掉頂部 [TITLE]，不壓到表情包與文字
+                        # 2. 塗白頂部 15% 區域，徹底抹除 [...] 標題與殘影
                         draw = ImageDraw.Draw(cell_img)
-                        erase_height = int(ch * 0.11)
+                        erase_height = int(ch * 0.15)
                         draw.rectangle([0, 0, cw, erase_height], fill=(255, 255, 255, 255))
 
                     # ----------------- 通用：自動抓取主體與居中畫布 -----------------
@@ -100,7 +98,8 @@ class EmoteCutter(commands.Cog):
                     sub_w, sub_h = cropped_subject.size
                     max_dim = max(sub_w, sub_h)
                     
-                    canvas_size = int(max_dim * 1.1)
+                    # 留出 12% 畫布邊界，防止文字緊貼邊框
+                    canvas_size = int(max_dim * 1.12)
                     final_canvas = Image.new('RGBA', (canvas_size, canvas_size), (255, 255, 255, 255))
                     
                     paste_x = (canvas_size - sub_w) // 2
