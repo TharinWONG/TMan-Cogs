@@ -44,17 +44,20 @@ class EmoteCutter(commands.Cog):
                 await ctx.send("❌ 圖片尺寸過小，無法切割。")
                 return
 
-            cell_width = img_width // 3
-            cell_height = img_height // 3
+            # 使用浮點數計算每格寬高，避免像素捨去導致的切割偏差
+            cell_width = img_width / 3
+            cell_height = img_height / 3
             cropped_emote_files = []
 
             for row in range(3):
                 for col in range(3):
-                    left = col * cell_width
-                    top = row * cell_height
-                    right = (col + 1) * cell_width
-                    bottom = (row + 1) * cell_height
+                    # 使用 round() 精確對齊原圖網格邊界
+                    left = round(col * cell_width)
+                    top = round(row * cell_height)
+                    right = round((col + 1) * cell_width)
+                    bottom = round((row + 1) * cell_height)
 
+                    # 依照原圖比例與尺寸切割，不做任何縮放
                     emote_img = img.crop((left, top, right, bottom))
 
                     output_stream = io.BytesIO()
@@ -65,7 +68,7 @@ class EmoteCutter(commands.Cog):
                     file = discord.File(output_stream, filename=filename)
                     cropped_emote_files.append(file)
 
-            await ctx.send("✅ **切割完成！** 以下是 9 張獨立表情包：")
+            await ctx.send("✅ **切割完成！** 以下是 9 張保持原圖尺寸的獨立表情包：")
             await ctx.send(files=cropped_emote_files)
 
         except Exception as e:
