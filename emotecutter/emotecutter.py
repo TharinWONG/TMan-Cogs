@@ -1,17 +1,26 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from redbot.core import commands
 from PIL import Image, ImageChops
 import io
 import discord
-from rembg import remove
+
+# 建立線程池，防止 CPU 運算卡死 Bot 主線程
+executor = ThreadPoolExecutor(max_workers=2)
 
 class EmoteCutter(commands.Cog):
-    """將 3x3 九宮格圖片自動切割，並支援去背功能的插件"""
+    """將 3x3 九宮格圖片自動切割，並支援防崩潰去背功能的插件"""
 
     def __init__(self, bot):
         self.bot = bot
 
+    def _sync_remove_bg(self, img_bytes):
+        """在獨立線程中安全執行 rembg"""
+        from rembg import remove
+        return remove(img_bytes)
+
     async def _process_emotes(self, ctx, remove_bg: bool = False, arg: str = None):
-        """核心處理邏輯 (支援普通切割與自動去背)"""
+        """核心處理邏輯 (非同步安全版)"""
         target_image_bytes = None
 
         if ctx.message.attachments:
@@ -32,7 +41,7 @@ class EmoteCutter(commands.Cog):
             await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！")
             return
 
-        status_msg = await ctx.send("⏳ **正在處理圖片中...**" + (" (包含 AI 自動去背)" if remove_bg else ""))
+        status_msg = await ctx.send("⏳ **正在處理圖片中...**" + (" (AI 自動去背運算中，請稍候)" if remove_bg else ""))
 
         try:
             input_stream = io.BytesIO(target_image_bytes)
@@ -45,7 +54,6 @@ class EmoteCutter(commands.Cog):
 
             for row in range(3):
                 for col in range(3):
-                    # 1. 基礎網格切割 (第二、三列頂部微調 15 像素以除上一排殘影)
                     left = round(col * cell_width)
                     top = round(row * cell_height)
                     right = round((col + 1) * cell_width)
@@ -54,17 +62,12 @@ class EmoteCutter(commands.Cog):
                     crop_top = top + 15 if row > 0 else top
                     cell_img = img.crop((left, crop_top, right, bottom))
 
-                    # 2. 自動去白色背景邊界並取得主體 Bounding Box
                     bg = Image.new('RGBA', cell_img.size, (255, 255, 255, 255))
                     diff = ImageChops.difference(cell_img, bg)
                     bbox = diff.getbbox()
 
-                    if bbox:
-                        cropped_subject = cell_img.crop(bbox)
-                    else:
-                        cropped_subject = cell_img
+                    cropped_subject = cell_img.crop(bbox) if bbox else cell_img
 
-                    # 3. 放入正方形畫布 (若啟用去背則建立透明背景，否則建立白色背景)
                     sub_w, sub_h = cropped_subject.size
                     max_dim = max(sub_w, sub_h)
                     canvas_size = int(max_dim * 1.1)
@@ -76,11 +79,16 @@ class EmoteCutter(commands.Cog):
                     paste_y = (canvas_size - sub_h) // 2
                     final_canvas.paste(cropped_subject, (paste_x, paste_y), cropped_subject)
 
-                    # 4. 如果開啟去背功能，使用 rembg 移除背景
+                    # 如果開啟去背，放到背景線程執行，避免卡死 Bot
                     if remove_bg:
                         img_byte_arr = io.BytesIO()
                         final_canvas.save(img_byte_arr, format='PNG')
-                        nobg_bytes = remove(img_byte_arr.getvalue())
+                        
+                        loop = asyncio.get_running_loop()
+                        # 將 AI 運算交給背景 executor
+                        nobg_bytes = await loop.run_in_executor(
+                            executor, self._sync_remove_bg, img_byte_arr.getvalue()
+                        )
                         final_canvas = Image.open(io.BytesIO(nobg_bytes))
 
                     output_stream = io.BytesIO()
@@ -92,13 +100,16 @@ class EmoteCutter(commands.Cog):
                     cropped_emote_files.append(file)
 
             await status_msg.delete()
-            msg = "✅ **去背與切割完成！** 以下是 9 張透明背景表情包：" if remove_bg else "✅ **精確切割完成！**"
+            msg = "✅ **去背與切割完成！**" if remove_bg else "✅ **精確切割完成！**"
             await ctx.send(msg)
             await ctx.send(files=cropped_emote_files)
 
         except Exception as e:
-            await status_msg.delete()
-            await ctx.send(f"❌ 處理失敗：{e}")
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+            await ctx.send(f"❌ 處理失敗（可能因伺服器記憶體不足）：{e}")
 
     @commands.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
