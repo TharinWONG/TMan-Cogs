@@ -1,11 +1,10 @@
 from redbot.core import commands
-from PIL import Image, ImageChops
+from PIL import Image, ImageDraw, ImageChops
 import io
 import discord
-import aiohttp
 
 class EmoteCutter(commands.Cog):
-    """將 3x3 九宮格圖片自動精準切割、去雜訊及 AI 清理的插件"""
+    """將 3x3 九宮格圖片自動精準切割、去雜訊及圖像清理的插件"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -87,49 +86,73 @@ class EmoteCutter(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ 切割失敗：{e}")
 
-    # ------------------ 2. 新功能：AI 抹除分界線與 [] 標籤 ------------------
+    # ------------------ 2. 新功能：純 Python 像素擦除標籤與分界線 ------------------
     @commands.command()
-    @commands.cooldown(1, 20, commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def cleanemotes(self, ctx: commands.Context, *, arg: str = None):
-        """上傳含 [] 標籤與邊框的 9 宮格圖，自動用 AI 提取並去除標籤與分界線"""
-        image_url = None
+        """上傳 9 宮格圖，精準抹除頂部 [...] 標籤與灰色分界線（不破壞人物）"""
+        target_image_bytes = None
 
         if ctx.message.attachments:
             for attachment in ctx.message.attachments:
                 if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg")):
-                    image_url = attachment.url
+                    target_image_bytes = await attachment.read()
                     break
         elif arg and arg.startswith("http"):
-            image_url = arg
+            try:
+                async with self.bot.session.get(arg) as response:
+                    if response.status == 200:
+                        target_image_bytes = await response.read()
+            except Exception as e:
+                await ctx.send(f"❌ 無法讀取圖片：{e}")
+                return
 
-        if not image_url:
-            await ctx.send("❌ 請上傳帶有 `[TAG]` 標籤或分界線的九宮格圖片！")
+        if not target_image_bytes:
+            await ctx.send("❌ 請上傳帶有 `[TAG]` 標籤的九宮格圖片！")
             return
 
-        async with ctx.typing():
-            try:
-                # 提示詞設計：明確要求移除分界線 (Grid/Lines) 與中括號標籤 ([...])
-                prompt = "Remove all grid lines, remove dividing lines, remove top text in brackets like [GREETING], keep the characters and emote text inside, clean solid white background between emotes"
-                
-                # 使用開放 AI 圖像處理網關進行修圖重構
-                encoded_url = java_uri_encode = image_url.replace(":", "%3A").replace("/", "%2F")
-                api_url = f"https://image.pollinations.ai/prompt/{prompt}?image={encoded_url}&width=1024&height=1024&nologo=true"
+        try:
+            input_stream = io.BytesIO(target_image_bytes)
+            img = Image.open(input_stream).convert('RGB')
+            draw = ImageDraw.Draw(img)
+            
+            w, h = img.size
+            cell_w = w / 3
+            cell_h = h / 3
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(api_url) as resp:
-                        if resp.status == 200:
-                            cleaned_image_bytes = await resp.read()
-                            
-                            output_stream = io.BytesIO(cleaned_image_bytes)
-                            file = discord.File(output_stream, filename="cleaned_grid.png")
-                            
-                            await ctx.send("✨ **AI 提純完成！已抹除分界線與 `[...]` 標籤：**", file=file)
-                            await ctx.send("💡 *提示：你現在可以對這張生成的圖片使用 `[p]cutemotes` 進行切割！*")
-                        else:
-                            await ctx.send("❌ AI 處理失敗，請稍後再試。")
+            # 1. 抹除每一格頂部的 [TAG] 區域 (約佔每格高度的 10%)
+            tag_height = cell_h * 0.10
+            for row in range(3):
+                for col in range(3):
+                    x1 = col * cell_w
+                    y1 = row * cell_h
+                    x2 = (col + 1) * cell_w
+                    y2 = y1 + tag_height
+                    # 塗白標籤區域
+                    draw.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
 
-            except Exception as e:
-                await ctx.send(f"❌ 處理過程中發生錯誤：{e}")
+            # 2. 抹除垂直與水平的分界線 (線條寬度約佔 2%)
+            line_thickness = max(4, int(w * 0.015))
+            
+            # 塗白 2 條垂直分界線
+            draw.rectangle([cell_w - line_thickness, 0, cell_w + line_thickness, h], fill=(255, 255, 255))
+            draw.rectangle([cell_w * 2 - line_thickness, 0, cell_w * 2 + line_thickness, h], fill=(255, 255, 255))
+
+            # 塗白 2 條水平分界線
+            draw.rectangle([0, cell_h - line_thickness, w, cell_h + line_thickness], fill=(255, 255, 255))
+            draw.rectangle([0, cell_h * 2 - line_thickness, w, cell_h * 2 + line_thickness], fill=(255, 255, 255))
+
+            # 輸出圖片
+            output_stream = io.BytesIO()
+            img.save(output_stream, format="PNG")
+            output_stream.seek(0)
+
+            file = discord.File(output_stream, filename="cleaned_grid.png")
+            await ctx.send("✨ **提純完成！已完美擦除標籤與分界線：**", file=file)
+            await ctx.send("💡 *現在你可以對這張圖片發送 `[p]cutemotes` 進行切割了！*")
+
+        except Exception as e:
+            await ctx.send(f"❌ 處理失敗：{e}")
 
 async def setup(bot):
     await bot.add_cog(EmoteCutter(bot))
