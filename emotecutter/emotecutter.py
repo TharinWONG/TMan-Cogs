@@ -1,28 +1,17 @@
 from redbot.core import commands
-from PIL import Image, ImageDraw, ImageChops
+from PIL import Image, ImageChops
 import io
 import discord
 
 class EmoteCutter(commands.Cog):
-    """將 3x3 九宮格圖片自動精準切割的插件，支援模式選擇"""
+    """將 3x3 九宮格圖片自動精準切割並去雜訊的插件"""
 
     def __init__(self, bot):
         self.bot = bot
 
     @commands.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
-    async def cutemotes(self, ctx: commands.Context, mode: str = "1", *, url: str = None):
-        """
-        用法：
-        .cutemotes 1 [圖片/連結] - 普通精準切割（預設）
-        .cutemotes 2 [圖片/連結] - 完美去灰線與 [] 標題（文字完整版）
-        """
-        target_mode = "1"
-        if mode in ["1", "2"]:
-            target_mode = mode
-        else:
-            url = mode if not url else f"{mode} {url}"
-
+    async def cutemotes(self, ctx: commands.Context, *, arg: str = None):
         target_image_bytes = None
 
         if ctx.message.attachments:
@@ -30,9 +19,9 @@ class EmoteCutter(commands.Cog):
                 if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg")):
                     target_image_bytes = await attachment.read()
                     break
-        elif url and url.startswith("http") and url.lower().endswith((".png", ".jpg", ".jpeg")):
+        elif arg and arg.startswith("http") and arg.lower().endswith((".png", ".jpg", ".jpeg")):
             try:
-                async with self.bot.session.get(url) as response:
+                async with self.bot.session.get(arg) as response:
                     if response.status == 200:
                         target_image_bytes = await response.read()
             except Exception as e:
@@ -40,7 +29,7 @@ class EmoteCutter(commands.Cog):
                 return
 
         if not target_image_bytes:
-            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！(1050x1024) 格式：`.cutemotes 1` 或 `.cutemotes 2`")
+            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！")
             return
 
         try:
@@ -54,52 +43,34 @@ class EmoteCutter(commands.Cog):
 
             for row in range(3):
                 for col in range(3):
-                    cell_img = None
+                    # 1. 基礎網格切割，並向內微調去除鄰居大面積重疊
+                    left = round(col * cell_width)
+                    top = round(row * cell_height)
+                    right = round((col + 1) * cell_width)
+                    bottom = round((row + 1) * cell_height)
 
-                    # ----------------- 模式 1：普通精準切割 -----------------
-                    if target_mode == "1":
-                        left = round(col * cell_width)
-                        top = round(row * cell_height)
-                        right = round((col + 1) * cell_width)
-                        bottom = round((row + 1) * cell_height)
+                    # 針對頂部殘影微調：如果是第 2、3 列，頂部多裁掉 15 像素以切斷上一排殘影
+                    crop_top = top + 15 if row > 0 else top
+                    
+                    cell_img = img.crop((left, crop_top, right, bottom))
 
-                        crop_top = top + 15 if row > 0 else top
-                        cell_img = img.crop((left, crop_top, right, bottom))
-
-                    # ----------------- 模式 2：完美去灰線與標題 -----------------
-                    elif target_mode == "2":
-                        # 1. 四邊統一向內裁切 8 像素，徹底移除灰黑色邊框線
-                        margin_x = 8
-                        margin_y = 6
-
-                        left = round(col * cell_width) + margin_x
-                        top = round(row * cell_height) + margin_y
-                        right = round((col + 1) * cell_width) - margin_x
-                        bottom = round((row + 1) * cell_height) - margin_y
-
-                        cell_img = img.crop((left, top, right, bottom))
-                        cw, ch = cell_img.size
-
-                        # 2. 塗白頂部 15% 區域，徹底抹除 [...] 標題與殘影
-                        draw = ImageDraw.Draw(cell_img)
-                        erase_height = int(ch * 0.15)
-                        draw.rectangle([0, 0, cw, erase_height], fill=(255, 255, 255, 255))
-
-                    # ----------------- 通用：自動抓取主體與居中畫布 -----------------
+                    # 2. 自動去白色背景並取得主體 Bounding Box
                     bg = Image.new('RGBA', cell_img.size, (255, 255, 255, 255))
                     diff = ImageChops.difference(cell_img, bg)
                     bbox = diff.getbbox()
 
                     if bbox:
+                        # 裁切出只有主體（含文字）的區域
                         cropped_subject = cell_img.crop(bbox)
                     else:
                         cropped_subject = cell_img
 
+                    # 3. 將主體等比例縮放，放入完美的正方形畫布中
                     sub_w, sub_h = cropped_subject.size
                     max_dim = max(sub_w, sub_h)
                     
-                    # 留出 12% 畫布邊界，防止文字緊貼邊框
-                    canvas_size = int(max_dim * 1.12)
+                    # 留出 10% 邊界Margin，防止文字貼邊
+                    canvas_size = int(max_dim * 1.1)
                     final_canvas = Image.new('RGBA', (canvas_size, canvas_size), (255, 255, 255, 255))
                     
                     paste_x = (canvas_size - sub_w) // 2
@@ -114,8 +85,7 @@ class EmoteCutter(commands.Cog):
                     file = discord.File(output_stream, filename=filename)
                     cropped_emote_files.append(file)
 
-            msg_suffix = "（模式 2：完美去除灰線與 [] 標題）" if target_mode == "2" else "（模式 1：精準切割）"
-            await ctx.send(f"✅ **切割完成！** {msg_suffix}")
+            await ctx.send("✅ **精確去雜訊切割完成！**")
             await ctx.send(files=cropped_emote_files)
 
         except Exception as e:
