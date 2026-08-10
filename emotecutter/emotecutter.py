@@ -1,26 +1,34 @@
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from redbot.core import commands
 from PIL import Image, ImageChops
 import io
 import discord
 
-# 建立線程池，防止 CPU 運算卡死 Bot 主線程
-executor = ThreadPoolExecutor(max_workers=2)
-
 class EmoteCutter(commands.Cog):
-    """將 3x3 九宮格圖片自動切割，並支援防崩潰去背功能的插件"""
+    """將 3x3 九宮格圖片自動精準切割，並支援超輕量去背的插件"""
 
     def __init__(self, bot):
         self.bot = bot
 
-    def _sync_remove_bg(self, img_bytes):
-        """在獨立線程中安全執行 rembg"""
-        from rembg import remove
-        return remove(img_bytes)
+    def _remove_white_background(self, img: Image.Image, threshold: int = 240) -> Image.Image:
+        """
+        純原生 PIL 超快去背法：將接近純白色的像素轉為透明
+        threshold: 240 代表 RGB 三色均大於 240 的淺白背景都會被過濾成透明
+        """
+        img = img.convert("RGBA")
+        datas = img.getdata()
+
+        new_data = []
+        for item in datas:
+            # item 格式為 (R, G, B, A)
+            if item[0] >= threshold and item[1] >= threshold and item[2] >= threshold:
+                new_data.append((255, 255, 255, 0))  # 變透明
+            else:
+                new_data.append(item)
+
+        img.putdata(new_data)
+        return img
 
     async def _process_emotes(self, ctx, remove_bg: bool = False, arg: str = None):
-        """核心處理邏輯 (非同步安全版)"""
         target_image_bytes = None
 
         if ctx.message.attachments:
@@ -41,7 +49,7 @@ class EmoteCutter(commands.Cog):
             await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！")
             return
 
-        status_msg = await ctx.send("⏳ **正在處理圖片中...**" + (" (AI 自動去背運算中，請稍候)" if remove_bg else ""))
+        status_msg = await ctx.send("⏳ **正在處理圖片中...**")
 
         try:
             input_stream = io.BytesIO(target_image_bytes)
@@ -54,6 +62,7 @@ class EmoteCutter(commands.Cog):
 
             for row in range(3):
                 for col in range(3):
+                    # 1. 基礎網格切割 (頂部微調 15 像素除上一排殘影)
                     left = round(col * cell_width)
                     top = round(row * cell_height)
                     right = round((col + 1) * cell_width)
@@ -62,12 +71,18 @@ class EmoteCutter(commands.Cog):
                     crop_top = top + 15 if row > 0 else top
                     cell_img = img.crop((left, crop_top, right, bottom))
 
+                    # 2. 自動去白色背景邊界並取得主體 Bounding Box
                     bg = Image.new('RGBA', cell_img.size, (255, 255, 255, 255))
                     diff = ImageChops.difference(cell_img, bg)
                     bbox = diff.getbbox()
 
                     cropped_subject = cell_img.crop(bbox) if bbox else cell_img
 
+                    # 3. 如果開啟去背，使用原生超快色彩過濾去背
+                    if remove_bg:
+                        cropped_subject = self._remove_white_background(cropped_subject, threshold=235)
+
+                    # 4. 放入正方形畫布
                     sub_w, sub_h = cropped_subject.size
                     max_dim = max(sub_w, sub_h)
                     canvas_size = int(max_dim * 1.1)
@@ -79,18 +94,6 @@ class EmoteCutter(commands.Cog):
                     paste_y = (canvas_size - sub_h) // 2
                     final_canvas.paste(cropped_subject, (paste_x, paste_y), cropped_subject)
 
-                    # 如果開啟去背，放到背景線程執行，避免卡死 Bot
-                    if remove_bg:
-                        img_byte_arr = io.BytesIO()
-                        final_canvas.save(img_byte_arr, format='PNG')
-                        
-                        loop = asyncio.get_running_loop()
-                        # 將 AI 運算交給背景 executor
-                        nobg_bytes = await loop.run_in_executor(
-                            executor, self._sync_remove_bg, img_byte_arr.getvalue()
-                        )
-                        final_canvas = Image.open(io.BytesIO(nobg_bytes))
-
                     output_stream = io.BytesIO()
                     final_canvas.save(output_stream, format="PNG")
                     output_stream.seek(0)
@@ -100,7 +103,7 @@ class EmoteCutter(commands.Cog):
                     cropped_emote_files.append(file)
 
             await status_msg.delete()
-            msg = "✅ **去背與切割完成！**" if remove_bg else "✅ **精確切割完成！**"
+            msg = "✅ **極速去背與切割完成！**" if remove_bg else "✅ **精確切割完成！**"
             await ctx.send(msg)
             await ctx.send(files=cropped_emote_files)
 
@@ -109,18 +112,18 @@ class EmoteCutter(commands.Cog):
                 await status_msg.delete()
             except Exception:
                 pass
-            await ctx.send(f"❌ 處理失敗（可能因伺服器記憶體不足）：{e}")
+            await ctx.send(f"❌ 處理失敗：{e}")
 
     @commands.command()
-    @commands.cooldown(1, 10, commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def cutemotes(self, ctx: commands.Context, *, arg: str = None):
         """[原指令] 自動切割 9 宮格表情包 (保留背景)"""
         await self._process_emotes(ctx, remove_bg=False, arg=arg)
 
     @commands.command()
-    @commands.cooldown(1, 20, commands.BucketType.user)
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def cutemotesbg(self, ctx: commands.Context, *, arg: str = None):
-        """[新指令] 自動切割 9 宮格表情包，並自動去背轉為透明 PNG"""
+        """[新指令] 自動切割 9 宮格表情包，並極速轉換為透明 PNG (零崩潰)"""
         await self._process_emotes(ctx, remove_bg=True, arg=arg)
 
 async def setup(bot):
