@@ -4,7 +4,7 @@ import io
 import discord
 
 class EmoteCutter(commands.Cog):
-    """將 3x3 九宮格圖片自動精準切割、抹除頂部 [] 標題並完整保留底部文字的插件"""
+    """將 3x3 九宮格圖片自動精準切割、完全去除邊界線與頂部 [] 標題的插件"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -12,7 +12,7 @@ class EmoteCutter(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def cutemotes(self, ctx: commands.Context, *, arg: str = None):
-        """上傳 3x3 九宮格圖片，自動切成 9 張獨立表情包 (塗白抹除 [] 標題)"""
+        """上傳 3x3 九宮格圖片，自動切成 9 張獨立表情包"""
         target_image_bytes = None
 
         if ctx.message.attachments:
@@ -44,23 +44,25 @@ class EmoteCutter(commands.Cog):
 
             for row in range(3):
                 for col in range(3):
-                    # 1. 微調網格邊界，避開黑/灰色分界線 (內縮 4 像素)
-                    margin = 4
-                    left = round(col * cell_width) + margin
-                    top = round(row * cell_height) + margin
-                    right = round((col + 1) * cell_width) - margin
-                    bottom = round((row + 1) * cell_height) - margin
+                    # 1. 微調網格邊界，加大內縮 (Margin) 徹底切掉左/右/下側的灰黑色分界線
+                    margin_x = 10  # 左右各向內縮 10 像素，去除左側灰色直條
+                    margin_y = 6   # 上下內縮
+                    
+                    left = round(col * cell_width) + margin_x
+                    top = round(row * cell_height) + margin_y
+                    right = round((col + 1) * cell_width) - margin_x
+                    bottom = round((row + 1) * cell_height) - margin_y
 
                     cell_img = img.crop((left, top, right, bottom))
                     cw, ch = cell_img.size
 
-                    # 2. **覆蓋抹除 [] 標題**
-                    # 在每格頂部 13% 的範圍內畫一個純白矩形，直接遮蓋 [LURK] 等標題文字
+                    # 2. **覆蓋抹除 [] 標題與頂部邊框殘影**
+                    # 將塗白高度稍微提高到 14%，確保完全無痕遮蓋
                     draw = ImageDraw.Draw(cell_img)
-                    erase_height = int(ch * 0.13)
+                    erase_height = int(ch * 0.14)
                     draw.rectangle([0, 0, cw, erase_height], fill=(255, 255, 255, 255))
 
-                    # 3. 自動偵測剩餘區域主體（避開白邊，抓取表情包與底部文字）
+                    # 3. 保留好用的 Bounding Box 自動偵測（抓取表情包與底部完整文字）
                     bg = Image.new('RGBA', cell_img.size, (255, 255, 255, 255))
                     diff = ImageChops.difference(cell_img, bg)
                     bbox = diff.getbbox()
@@ -70,11 +72,11 @@ class EmoteCutter(commands.Cog):
                     else:
                         cropped_subject = cell_img
 
-                    # 4. 放置於完美居中的正方形畫布上，並留適當邊框
+                    # 4. 保留好用的正方形畫布等比例居中
                     sub_w, sub_h = cropped_subject.size
                     max_dim = max(sub_w, sub_h)
                     
-                    canvas_size = int(max_dim * 1.05) # 5% 安全留白
+                    canvas_size = int(max_dim * 1.05)
                     final_canvas = Image.new('RGBA', (canvas_size, canvas_size), (255, 255, 255, 255))
                     
                     paste_x = (canvas_size - sub_w) // 2
@@ -89,7 +91,7 @@ class EmoteCutter(commands.Cog):
                     file = discord.File(output_stream, filename=filename)
                     cropped_emote_files.append(file)
 
-            await ctx.send("✅ **完美切割！** `[...]` 標題已完全抹除，底部文字 100% 完整保留：")
+            await ctx.send("✅ **完美切割！** 灰色分界線與 `[...]` 標題已全部清除，文字完整保留：")
             await ctx.send(files=cropped_emote_files)
 
         except Exception as e:
