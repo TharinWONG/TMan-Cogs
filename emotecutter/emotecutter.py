@@ -29,7 +29,7 @@ class EmoteCutter(commands.Cog):
                 return
 
         if not target_image_bytes:
-            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！")
+            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！(1050 x 1024)")
             return
 
         try:
