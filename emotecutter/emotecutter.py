@@ -4,7 +4,7 @@ import io
 import discord
 
 class EmoteCutter(commands.Cog):
-    """將 3x3 九宮格圖片自動切割成 9 張獨立 Emotes 的插件"""
+    """將 3x3 九宮格圖片自動切割成 9 張獨立 Emotes 的插件 (智能縮放文字完整版)"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -12,7 +12,7 @@ class EmoteCutter(commands.Cog):
     @commands.command()
     @commands.cooldown(1, 10, commands.BucketType.user)
     async def cutemotes(self, ctx: commands.Context, *, arg: str = None):
-        """上傳 3x3 九宮格圖片並輸入此指令，自動切成 9 張表情包"""
+        """上傳 3x3 九宮格圖片，自動切成 9 張完整文字的表情包"""
         target_image_bytes = None
 
         if ctx.message.attachments:
@@ -30,12 +30,17 @@ class EmoteCutter(commands.Cog):
                 return
 
         if not target_image_bytes:
-            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片，或提供圖片鏈接！")
+            await ctx.send("❌ 請上傳一張 3x3 九宮格圖片！")
             return
 
         try:
             input_stream = io.BytesIO(target_image_bytes)
             img = Image.open(input_stream)
+            
+            # 強制轉換為 RGBA 模式以確保背景處理
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+                
             img_width, img_height = img.size
 
             if img_width < 3 or img_height < 3:
@@ -45,37 +50,49 @@ class EmoteCutter(commands.Cog):
             cell_width = img_width / 3
             cell_height = img_height / 3
             
-            # 設定內縮像素 (Padding)，去除邊緣鄰近表情包的雜訊
-            padding_x = 12  # 左右內縮像素
-            padding_y = 12  # 上下內縮像素
-
             cropped_emote_files = []
 
             for row in range(3):
                 for col in range(3):
-                    # 計算基礎座標並加入內縮邊界
-                    left = round(col * cell_width) + padding_x
-                    top = round(row * cell_height) + padding_y
-                    right = round((col + 1) * cell_width) - padding_x
-                    bottom = round((row + 1) * cell_height) - padding_y
-
-                    # 確保座標不超出合理範圍
-                    left = max(0, left)
-                    top = max(0, top)
-                    right = min(img_width, right)
-                    bottom = min(img_height, bottom)
+                    # 1. 執行基礎數學切割 (精確對齊網格，不加 Padding)
+                    left = round(col * cell_width)
+                    top = round(row * cell_height)
+                    right = round((col + 1) * cell_width)
+                    bottom = round((row + 1) * cell_height)
 
                     emote_img = img.crop((left, top, right, bottom))
+                    orig_w, orig_h = emote_img.size
 
+                    # 2. **智能縮放處理 (關鍵)**
+                    # 建立一個完美的透明正方形畫布 (使用原圖最長邊作為基準)
+                    base_size = max(orig_w, orig_h)
+                    
+                    # 計算縮放比例 (例如整體縮小到基準的 85%，為文字騰出空間)
+                    scale_factor = 0.85 
+                    
+                    new_w = int(orig_w * scale_factor)
+                    new_h = int(orig_h * scale_factor)
+
+                    # 縮小圖案 (使用高質量縮放)
+                    scaled_img = emote_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+                    # 建立透明畫布並將縮小後的圖案垂直居中貼上
+                    final_canvas = Image.new('RGBA', (base_size, base_size), (255, 255, 255, 0))
+                    paste_x = (base_size - new_w) // 2
+                    paste_y = (base_size - new_h) // 2
+                    
+                    final_canvas.paste(scaled_img, (paste_x, paste_y), scaled_img)
+
+                    # 3. 儲存為 PNG
                     output_stream = io.BytesIO()
-                    emote_img.save(output_stream, format="PNG")
+                    final_canvas.save(output_stream, format="PNG")
                     output_stream.seek(0)
 
                     filename = f"emote_{row + 1}_{col + 1}.png"
                     file = discord.File(output_stream, filename=filename)
                     cropped_emote_files.append(file)
 
-            await ctx.send("✅ **精確切割完成！**（已去除邊界重疊圖案）：")
+            await ctx.send("✅ **切割完成！** 文字已完整保留，圖案已智能居中縮放：")
             await ctx.send(files=cropped_emote_files)
 
         except Exception as e:
