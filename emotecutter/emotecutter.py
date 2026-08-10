@@ -15,7 +15,6 @@ class EmoteCutter(commands.Cog):
         """上傳 3x3 九宮格圖片並輸入此指令，自動切成 9 張表情包"""
         target_image_bytes = None
 
-        # 讀取使用者上傳的圖片附件
         if ctx.message.attachments:
             for attachment in ctx.message.attachments:
                 if attachment.filename.lower().endswith((".png", ".jpg", ".jpeg")):
@@ -34,7 +33,6 @@ class EmoteCutter(commands.Cog):
             await ctx.send("❌ 請上傳一張 3x3 九宮格圖片，或提供圖片鏈接！")
             return
 
-        # 記憶體內進行圖片切割
         try:
             input_stream = io.BytesIO(target_image_bytes)
             img = Image.open(input_stream)
@@ -44,20 +42,29 @@ class EmoteCutter(commands.Cog):
                 await ctx.send("❌ 圖片尺寸過小，無法切割。")
                 return
 
-            # 使用浮點數計算每格寬高，避免像素捨去導致的切割偏差
             cell_width = img_width / 3
             cell_height = img_height / 3
+            
+            # 設定內縮像素 (Padding)，去除邊緣鄰近表情包的雜訊
+            padding_x = 12  # 左右內縮像素
+            padding_y = 12  # 上下內縮像素
+
             cropped_emote_files = []
 
             for row in range(3):
                 for col in range(3):
-                    # 使用 round() 精確對齊原圖網格邊界
-                    left = round(col * cell_width)
-                    top = round(row * cell_height)
-                    right = round((col + 1) * cell_width)
-                    bottom = round((row + 1) * cell_height)
+                    # 計算基礎座標並加入內縮邊界
+                    left = round(col * cell_width) + padding_x
+                    top = round(row * cell_height) + padding_y
+                    right = round((col + 1) * cell_width) - padding_x
+                    bottom = round((row + 1) * cell_height) - padding_y
 
-                    # 依照原圖比例與尺寸切割，不做任何縮放
+                    # 確保座標不超出合理範圍
+                    left = max(0, left)
+                    top = max(0, top)
+                    right = min(img_width, right)
+                    bottom = min(img_height, bottom)
+
                     emote_img = img.crop((left, top, right, bottom))
 
                     output_stream = io.BytesIO()
@@ -68,7 +75,7 @@ class EmoteCutter(commands.Cog):
                     file = discord.File(output_stream, filename=filename)
                     cropped_emote_files.append(file)
 
-            await ctx.send("✅ **切割完成！** 以下是 9 張保持原圖尺寸的獨立表情包：")
+            await ctx.send("✅ **精確切割完成！**（已去除邊界重疊圖案）：")
             await ctx.send(files=cropped_emote_files)
 
         except Exception as e:
