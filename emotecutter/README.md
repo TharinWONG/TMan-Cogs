@@ -18,5 +18,5 @@
 ---
 
 ### 成品(預覽)
-![](https://tmanlab.com/web_images/sample_cut1.png)
-![](https://tmanlab.com/web_images/sample_cut2.png)
+![](https://tmanlab.com/web_images/sample_cut1.png =80%x)
+![](https://tmanlab.com/web_images/sample_cut2.png =80%x)
