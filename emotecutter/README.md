@@ -18,5 +18,5 @@
 ---
 
 ### 成品(預覽)
-<img src="[https://tmanlab.com](https://tmanlab.com/web_images/sample_cut1.png)" width="60%">
-<img src="[https://tmanlab.com](https://tmanlab.com/web_images/sample_cut2.png)" width="60%">
+<img src="https://tmanlab.com/web_images/sample_cut1.png" width="60%">
+<img src="https://tmanlab.com/web_images/sample_cut2.png" width="60%">
