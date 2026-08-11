@@ -1,7 +1,7 @@
 {
     "author": ["TManO_O"],
     "install_msg": "感謝安裝我的本地插件庫！",
-    "name": "MyLocalRepo",
+    "name": "tman-cogs",
     "short": "我的AI自製本地 Cog 庫",
     "description": "包含多功能插件 (AI生成，勿認真，玩玩而已)"
 }
