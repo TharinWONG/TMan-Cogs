@@ -1,0 +1,33 @@
+{
+    "author": [
+        "TManO_O"
+    ],
+    "description": "上傳 3x3 九宮格圖片，自動切割成 9 張獨立的 PNG Emotes！",
+    "disabled": false,
+    "end_user_data_statement": "This cog does not persistently store data or metadata about users.",
+    "hidden": false,
+    "install_msg": "感謝安裝 EmoteCutter！請使用指令 `[p]cutemotes` 開始切割 9 宮格圖片。",
+    "max_bot_version": "0.0.0",
+    "min_bot_version": "3.5.0",
+    "min_python_version": [
+        3,
+        8,
+        0
+    ],
+    "name": "EmoteCutter",
+    "permissions": [
+        "attach_files"
+    ],
+    "required_cogs": {},
+    "requirements": [
+        "pillow"
+    ],
+    "short": "自動切割 9 宮格表情包",
+    "tags": [
+        "emote",
+        "image",
+        "utility",
+        "twitch"
+    ],
+    "type": "COG"
+}
