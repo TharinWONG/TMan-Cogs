@@ -1,4 +1,4 @@
-from PIL import Image, ImageChops, ImageFilter, ImageDraw
+from PIL import Image, ImageChops, ImageFilter
 import io
 
 def process_3d_emote(cell_img):
@@ -9,60 +9,65 @@ def process_3d_emote(cell_img):
     3. 生成向下延伸的 3D 厚度 (Extrusion)
     4. 加上底部立體投影
     """
+    # 確保圖片為 RGBA 模式
+    if cell_img.mode != 'RGBA':
+        cell_img = cell_img.convert('RGBA')
+
     # 1. 自動去除原圖白色背景，只保留人物與文字主體
     bg = Image.new('RGBA', cell_img.size, (255, 255, 255, 255))
     diff = ImageChops.difference(cell_img, bg)
     bbox = diff.getbbox()
     cropped = cell_img.crop(bbox) if bbox else cell_img
 
-    # 取得主體的 Alpha 通道 (形狀遮罩)
-    if cropped.mode != 'RGBA':
-        cropped = cropped.convert('RGBA')
+    c_w, c_h = cropped.size
     alpha = cropped.split()[3]
 
     # 2. 製作圓潤的 3D 白色外框 (Border)
-    border_radius = 10  # 立體外框粗細
+    border_radius = 8  # 外框擴展像素
+    
+    # 使用 Alpha 遮罩進行膨脹，產出外框形狀
     stroke_mask = alpha.filter(ImageFilter.MaxFilter(border_radius * 2 + 1))
     
-    border_w = cropped.width + border_radius * 4
-    border_h = cropped.height + border_radius * 4
+    # 建立外框與主體的結合圖層 (精確計算尺寸)
+    stk_w = c_w + border_radius * 2
+    stk_h = c_h + border_radius * 2
     
-    # 建立外框與主體的結合圖層
-    sticker = Image.new('RGBA', (border_w, border_h), (0, 0, 0, 0))
-    white_border = Image.new('RGBA', (border_w, border_h), (255, 255, 255, 255))
+    sticker = Image.new('RGBA', (stk_w, stk_h), (0, 0, 0, 0))
+    white_fill = Image.new('RGBA', (stk_w, stk_h), (255, 255, 255, 255))
     
-    # 貼上白色外框
-    sticker.paste(white_border, (border_radius * 2, border_radius * 2), stroke_mask)
-    # 貼上人物主體
-    sticker.paste(cropped, (border_radius * 2, border_radius * 2), cropped)
+    # 貼上白色外框與人物主體
+    sticker.paste(white_fill, (0, 0), stroke_mask)
+    sticker.paste(cropped, (border_radius, border_radius), cropped)
 
-    # 3. 製作 3D 厚度側邊 (Extrusion Thickness)
-    sticker_alpha = sticker.split()[3]
-    depth = 8  # 3D 厚度的深度 (像素)
+    # 3. 製作 3D 厚度側邊與立體陰影
+    stk_alpha = sticker.split()[3]
+    depth = 8  # 3D 厚度深度
     
-    canvas_w = border_w + depth + 20
-    canvas_h = border_h + depth + 20
+    pad = 15  # 畫布邊緣留白
+    canvas_w = stk_w + depth + pad * 2
+    canvas_h = stk_h + depth + pad * 2
+    
     final_canvas = Image.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
 
-    # 繪製底部深色立體陰影 (3D Drop Shadow)
-    shadow_color = (0, 0, 0, 80)
-    shadow = Image.new('RGBA', (border_w, border_h), shadow_color)
+    # (A) 繪製底部懸浮柔和陰影
+    shadow_color = (0, 0, 0, 90)
+    shadow_layer = Image.new('RGBA', (stk_w, stk_h), shadow_color)
     shadow_canvas = Image.new('RGBA', (canvas_w, canvas_h), (0, 0, 0, 0))
-    shadow_canvas.paste(shadow, (10 + depth, 10 + depth), sticker_alpha)
+    shadow_canvas.paste(shadow_layer, (pad + depth, pad + depth), stk_alpha)
     shadow_canvas = shadow_canvas.filter(ImageFilter.GaussianBlur(radius=4))
     final_canvas.alpha_composite(shadow_canvas)
 
-    # 一層層向下偏移繪製 3D 灰色側邊厚度 (立體緣邊)
-    edge_color = (210, 210, 215, 255) # 3D 側邊的立體灰色
-    edge_layer = Image.new('RGBA', (border_w, border_h), edge_color)
+    # (B) 繪製 3D 灰色側邊厚度
+    edge_color = (210, 210, 215, 255)
+    edge_layer = Image.new('RGBA', (stk_w, stk_h), edge_color)
 
     for i in range(depth, 0, -1):
-        final_canvas.paste(edge_layer, (10 + i, 10 + i), sticker_alpha)
+        final_canvas.paste(edge_layer, (pad + i, pad + i), stk_alpha)
 
-    # 4. 最頂層貼上主體貼紙
-    final_canvas.paste(sticker, (10, 10), sticker)
+    # (C) 最頂層貼上白框貼紙
+    final_canvas.paste(sticker, (pad, pad), sticker)
 
-    # 5. 自動裁切並置中於正方形畫布
+    # 4. 自動裁切並置中於正方形畫布
     final_bbox = final_canvas.getbbox()
     out = final_canvas.crop(final_bbox) if final_bbox else final_canvas
     
