@@ -20,7 +20,8 @@
     ],
     "required_cogs": {},
     "requirements": [
-        "pillow"
+        "pillow",
+        "numpy"
     ],
     "short": "自動切割 9 宮格表情包",
     "tags": [
