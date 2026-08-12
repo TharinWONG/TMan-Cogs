@@ -6,4 +6,4 @@
 ---
 | Name           | Description (Click to see full status)    | Authors     |
 |----------------|-------------------------------------------|-------------|
-| emotecutter    | <details><summary>切圖工具</summary>3x3九宮格圖片 平均分割 <img src="https://tmanlab.com/web_images/sample_cut1.png" width="30%"> <img src="https://tmanlab.com/web_images/sample_cut2.png" width="30%"></details>  | TMan   |
+| emotecutter    | <details><summary>切圖工具</summary>3x3九宮格圖片 平均分割 <img src="https://tmanlab.com/web_images/sample_cut1.png" width="30%"> <img src="https://tmanlab.com/web_images/sample_cut2.png" width="25%"></details>  | TMan   |
