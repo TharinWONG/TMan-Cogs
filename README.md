@@ -1,5 +1,5 @@
 # Installation
-`[p]repo add tman-cogs https://github.com/TharinWONG/TMancogs`
+`[p]repo add tman-cogs https://github.com/TharinWONG/TMan-Cogs`
 
 `[p]cog install tman-cogs <cog_name>`
 
